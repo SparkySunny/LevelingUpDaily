@@ -6,7 +6,7 @@
 >SparkySunny.scs 配色方案  
 >SparkySunny.hls 突出显示集
 
-查看xshell主题的路径：C:\Users\用户\Documents\NetSarang Computer\8\Xshell下面  
+查看xshell颜色和突出显示的路径：C:\Users\用户\Documents\NetSarang Computer\8\Xshell下面  
 将SparkySunny.scs复制到ColorScheme Files文件夹  
 将SparkySunny.hls复制到HighlightSet Files文件夹  
 ### 启用配置
