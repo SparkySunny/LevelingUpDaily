@@ -11,5 +11,5 @@
 将SparkySunny.hls复制到HighlightSet Files文件夹  
 ### 启用配置
 以xshell8为例  
-点击工具->配色方案->双击SparkySunny
+点击工具->配色方案->双击SparkySunny  
 点击工具->突出显示集->选中SparkySunny->设置为当前组
