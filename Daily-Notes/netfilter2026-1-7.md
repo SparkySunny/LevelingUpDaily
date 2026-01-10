@@ -2,6 +2,7 @@
 ## netfilter简介
 Netfilter框架由一系列钩子（hooks）组成，这些钩子位于Linux网络栈的关键路径上。当数据包经过网络栈时，它会触发这些钩子，从而使得注册到这些钩子上的函数（即内核模块）能够对数据包进行处理。
 ### netfilter五个关键钩子（hook）
+这五个
 >NF_INET_PRE_ROUTING (预路由)  
 数据包由网卡驱动接收，经过简单的校验（如 IP 头部检查）后，进入网络层的第一站。  
 此时内核还不知道这个包是要发给自己的，还是需要转发给别人的。  
@@ -37,28 +38,25 @@ Netfilter框架由一系列钩子（hooks）组成，这些钩子位于Linux网�
 回调函数：nf_nat_ipv4_in()，nf_nat_ipv4_out()，nf_nat_ipv4_local_fn()等  
 注册钩子：根据NAT类型（SNAT/DNAT）注册到不同的钩子点
 
->iptables模块（每个表对应一个模块）  
-例如，filter表对应的模块iptable_filter，其回调函数为iptable_filter_hook()，注册到INPUT、FORWARD和OUTPUT钩子，优先级为0（filter）。  
+>iptables相关的内核模块
+iptable_filter，其回调函数为iptable_filter_hook()，注册到INPUT、FORWARD和OUTPUT钩子，优先级为0（filter）。  
 
->mangle表对应的模块iptable_mangle，回调函数为iptable_mangle_hook()，注册到多个钩子点，优先级为-150。
+>iptable_mangle，回调函数为iptable_mangle_hook()，注册到多个钩子点，优先级为-150。
 
->raw表对应的模块iptable_raw，回调函数为iptable_raw_hook()，注册到PREROUTING和OUTPUT钩子，优先级为-300。
+>iptable_raw，回调函数为iptable_raw_hook()，注册到PREROUTING和OUTPUT钩子，优先级为-300。
 #### 优先级常量
 在内核中，不同模块的回调函数按照优先级顺序执行。以下是以IPv4为例的典型优先级：
 
-| 优先级常量 | 值 | 对应的内核模块/功能 | 作用 |
-|-----------|----|-------------------|------|
-| `NF_IP_PRI_FIRST` | -225 | 最早执行的钩子 | 自定义模块可用 |
-| `NF_IP_PRI_RAW` | -300 | `iptable_raw` / `nftables raw` | NOTRACK标记，绕过连接跟踪 |
-| `NF_IP_PRI_CONNTRACK_DEFRAG` | -400 | 连接跟踪分片重组 | 在连接跟踪前重组IP分片 |
-| `NF_IP_PRI_CONNTRACK` | -200 | `nf_conntrack` | 连接跟踪核心逻辑 |
-| `NF_IP_PRI_MANGLE` | -150 | `iptable_mangle` / `nftables mangle` | 数据包修改 |
-| `NF_IP_PRI_NAT_DST` | -100 | `nf_nat` (DNAT) | 目标地址转换 |
-| `NF_IP_PRI_FILTER` | 0 | `iptable_filter` / `nftables filter` | 包过滤（默认优先级） |
-| `NF_IP_PRI_SECURITY` | 50 | SELinux/安全模块 | 强制访问控制 |
-| `NF_IP_PRI_NAT_SRC` | 100 | `nf_nat` (SNAT) | 源地址转换 |
-| `NF_IP_PRI_LAST` | 300 | 最后执行的钩子 | 自定义模块可用 |
- 
+| 优先级常量 | 值 | 对应的内核功能 |
+|-----------|----|---------------|
+| `NF_IP_PRI_RAW` | -300 | 原始包处理（NOTRACK标记） |
+| `NF_IP_PRI_CONNTRACK_DEFRAG` | -400 | 连接跟踪前的分片重组 |
+| `NF_IP_PRI_CONNTRACK` | -200 | 连接跟踪 |
+| `NF_IP_PRI_MANGLE` | -150 | 数据包头部修改 |
+| `NF_IP_PRI_NAT_DST` | -100 | 目标地址转换（DNAT） |
+| `NF_IP_PRI_FILTER` | 0 | 数据包过滤 |
+| `NF_IP_PRI_SECURITY` | 50 | 安全模块处理 |
+| `NF_IP_PRI_NAT_SRC` | 100 | 源地址转换（SNAT） |
 
 ### 钩子链表 (Hook List)
 #### 钩子链表 (Hook List)的概念
