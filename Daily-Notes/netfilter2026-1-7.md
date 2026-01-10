@@ -2,7 +2,7 @@
 ## netfilter简介
 Netfilter框架由一系列钩子（hooks）组成，这些钩子位于Linux网络栈的关键路径上。当数据包经过网络栈时，它会触发这些钩子，从而使得注册到这些钩子上的函数（即内核模块）能够对数据包进行处理。
 ### netfilter五个关键钩子（hook）
->NF_INET_PRE_ROUTING （预路由）
+>NF_INET_PRE_ROUTING (预路由)  
 数据包由网卡驱动接收，经过简单的校验（如 IP 头部检查）后，进入网络层的第一站。  
 此时内核还不知道这个包是要发给自己的，还是需要转发给别人的。  
 这是进行 DNAT（目标地址转换） 的唯一机会。  
@@ -27,40 +27,38 @@ Netfilter框架由一系列钩子（hooks）组成，这些钩子位于Linux网�
 >入站流量 (发给本机的程序)	PREROUTING -> INPUT  
 转发流量 (经由本机发往别处)	PREROUTING -> FORWARD -> POSTROUTING  
 出站流量 (本机程序发出)	OUTPUT -> POSTROUTING  
-### netfilter回调函数
-在内核中，Netfilter 并不是一个单一的巨大文件，而是由一系列功能模块组成的集合。你可以通过命令 lsmod | grep nf 看到它们
-#### Raw 模块  
->它是数据包进入 Netfilter 框架后的第一个处理点。它的唯一主要任务是决定：“这个包是否需要被跟踪（Connection Tracking）？”  
-所有的 Netfilter 高级功能（如 NAT）都需要消耗内存来记录连接状态。如果你的服务器遭受巨大的流量攻击（如 DDoS），或者你正在处理极高并发的业务，你可以用 Raw 模块给特定的流量打上 NOTRACK 标签。  
+### netfilter优先级常量
+#### 主要模块的回调函数
+>连接跟踪模块（nf_conntrack）  
+回调函数：nf_conntrack_in() 或 nf_conntrack_handle_packet()  
+注册钩子：NF_INET_PRE_ROUTING，NF_INET_LOCAL_OUT（优先级为-200）
 
-#### Mangle 模块  
->核心用途： 它专门负责修改数据包的 IP 头部信息。  
-常见操作：  
-修改 TTL (Time To Live)： 可以让外界看不出你的网络跳数。    
-修改 TOS (Type of Service)： 为不同的流量设置优先级（如视频流优先，下载流靠后）。    
-打标记 (MARK)： 在包的内核元数据里打“标签”。这非常有用，比如你可以给所有 80 端口的包打上标记 1，然后告诉系统路由表：凡是标记为 1 的包都走电信线路。  
-#### NAT 模块
->它是专门处理 “改名字（IP/端口）” 的模块。它依赖于连接跟踪（conntrack）模块。  
-分为两类：  
-DNAT (目的地址转换)： 发生在包刚进来时（PREROUTING）。把访问公网 IP 的包转发到内网私有服务器上。  
-SNAT (源地址转换)： 发生在包要出去时（POSTROUTING）。把内网多台机器的私有 IP 统一换成公网 IP，实现“共享上网”。
+>NAT模块（nf_nat）  
+回调函数：nf_nat_ipv4_in()，nf_nat_ipv4_out()，nf_nat_ipv4_local_fn()等  
+注册钩子：根据NAT类型（SNAT/DNAT）注册到不同的钩子点
 
-#### Filter 模块
->核心用途： 这是最纯粹的防火墙模块。它只管一件事：这个包能不能过？  
-常见操作： ACCEPT（放行）、DROP（直接丢掉，不回信）、REJECT（拒绝，并回一封信告诉对方“我不收”）。    
-地位： 它是最常用的模块。我们平时写的“禁止某个 IP 访问”、“关闭某个端口”的命令， 90% 都是在操控这个模块。  
+>iptables模块（每个表对应一个模块）  
+例如，filter表对应的模块iptable_filter，其回调函数为iptable_filter_hook()，注册到INPUT、FORWARD和OUTPUT钩子，优先级为0（filter）。  
 
-#### 顺序
-Raw->Mangle->Nat->Filter
+>mangle表对应的模块iptable_mangle，回调函数为iptable_mangle_hook()，注册到多个钩子点，优先级为-150。
 
-### 优先级（Priority）
->NF_IP_PRI_RAW	-300	raw 表：最先处理，用于标记不跟踪连接。  
-NF_IP_PRI_CONNTRACK	-200	连接跟踪：在这里建立状态、查状态表。  
-NF_IP_PRI_MANGLE	-150	mangle 表：修改报文（TTL、TOS等）。  
-NF_IP_PRI_NAT_DST	-100	nat 表 (DNAT)：修改目标地址。  
-NF_IP_PRI_FILTER	0	filter 表：普通的过滤规则（默认位置）。  
-NF_IP_PRI_SECURITY	50	security 表：SELinux 强制访问控制。  
-NF_IP_PRI_NAT_SRC	100	nat 表 (SNAT)：修改源地址。  
+>raw表对应的模块iptable_raw，回调函数为iptable_raw_hook()，注册到PREROUTING和OUTPUT钩子，优先级为-300。
+#### 优先级常量
+在内核中，不同模块的回调函数按照优先级顺序执行。以下是以IPv4为例的典型优先级：
+
+| 优先级常量 | 值 | 对应的内核模块/功能 | 作用 |
+|-----------|----|-------------------|------|
+| `NF_IP_PRI_FIRST` | -225 | 最早执行的钩子 | 自定义模块可用 |
+| `NF_IP_PRI_RAW` | -300 | `iptable_raw` / `nftables raw` | NOTRACK标记，绕过连接跟踪 |
+| `NF_IP_PRI_CONNTRACK_DEFRAG` | -400 | 连接跟踪分片重组 | 在连接跟踪前重组IP分片 |
+| `NF_IP_PRI_CONNTRACK` | -200 | `nf_conntrack` | 连接跟踪核心逻辑 |
+| `NF_IP_PRI_MANGLE` | -150 | `iptable_mangle` / `nftables mangle` | 数据包修改 |
+| `NF_IP_PRI_NAT_DST` | -100 | `nf_nat` (DNAT) | 目标地址转换 |
+| `NF_IP_PRI_FILTER` | 0 | `iptable_filter` / `nftables filter` | 包过滤（默认优先级） |
+| `NF_IP_PRI_SECURITY` | 50 | SELinux/安全模块 | 强制访问控制 |
+| `NF_IP_PRI_NAT_SRC` | 100 | `nf_nat` (SNAT) | 源地址转换 |
+| `NF_IP_PRI_LAST` | 300 | 最后执行的钩子 | 自定义模块可用 |
+ 
 
 ### 钩子链表 (Hook List)
 #### 钩子链表 (Hook List)的概念
@@ -78,6 +76,8 @@ NF_IP_PRI_NAT_SRC	100	nat 表 (SNAT)：修改源地址。
 一个钩子上挂着来自“多个模块”注册的“回调函数”
 一个数据包被钩子拦住后会，会遍历钩子链表，并调用每一个节点的回调函数
 ### 连接跟踪（connection tracking）
+#### 连接跟踪的数据结构
+维护一个名为 conntrack 的哈希表，为每个可跟踪的连接（TCP、UDP、ICMP等）创建一个 struct nf_conn 条目，记录其原始方向、回复方向的状态。
 #### 连接的四种状态
 NEW（新连接）： 该包是某个连接的第一个包。例如 TCP 的第一个 SYN 包。
 
@@ -88,6 +88,9 @@ RELATED（关联连接）： 最神奇的状态。它指代那些虽然不是同
 经典例子： FTP 协议。你先建立了指令通道（21 端口），然后服务器主动连你开辟数据通道。这个数据包虽然是“新”的，但由于它和 21 端口的连接有关，被标记为 RELATED。
 
 INVALID（非法）： 包的逻辑有问题（比如不按顺序发包，或者内存满了无法记录）。这类包通常会被防火墙直接丢弃。  
+
+#### 连接的工作原理
+在 PRE_ROUTING 或 OUTPUT 钩子处，nf_conntrack 模块首先查看数据包是否属于已跟踪的连接。它会更新连接状态，并将连接信息（conntrack entry）附着到数据包的内核表示（struct sk_buff）上，供后续NAT和状态防火墙规则使用。
 
 #### connection tracking的作用
 Conntrack 在 NAT 中的决定性作用
@@ -100,6 +103,42 @@ Conntrack 在 NAT 中的决定性作用
 后续自动化： 所有的回程包和后续出站包，不再查 NAT 表，而是直接根据 Conntrack 的这条记录自动进行地址替换。
 
 这就是为什么 iptables -t nat -L 里的规则看起来只有一行，却能处理千万个包的原因。  
+
+### 网络地址转换
+依赖：NAT操作需要修改连接跟踪条目中的地址/端口映射，以确保同一个连接后续的所有包（包括回复包）能被正确转换
+
+SNAT (Source NAT)
+
+操作点：主要在 POST_ROUTING 钩子。
+
+动作：修改数据包的源IP地址（和可能的源端口）。
+
+目的：使内网主机使用网关的公网IP访问互联网。MASQUERADE 是SNAT的动态地址版本。
+
+DNAT (Destination NAT)
+
+操作点：主要在 PRE_ROUTING 钩子。
+
+动作：修改数据包的目标IP地址（和可能的目标端口）。
+
+目的：将发往网关公网IP和端口的请求，转发到内网指定的服务器上（端口转发/负载均衡）。
+###  数据包过滤
+决策基础：基于注册到钩子点（主要是 LOCAL_IN， FORWARD， LOCAL_OUT）的过滤函数。
+
+判断依据：对数据包及其相关元数据（如IP、协议、端口、连接跟踪状态、内核标记skb->mark、输入/输出接口等）进行逐条规则匹配。
+
+判决结果：
+
+NF_ACCEPT：允许数据包继续传递到下一个处理阶段或应用。
+
+NF_DROP：静默丢弃数据包，释放相关资源。
+
+NF_REJECT：丢弃数据包，并可发送一个错误响应（如TCP RST或ICMP不可达）。
+
+NF_QUEUE：将数据包传递到用户空间程序处理（需配合libnetfilter_queue）。
+
+NF_STOLEN / NF_REPEAT：更底层的控制，供特定内核模块使用。
+
 
 #### 回调机制
 函数返回
@@ -136,7 +175,7 @@ Conntrack 在 NAT 中的决定性作用
 
 链表遍历：内核调取该钩子下的 nf_hook_entries 数组。
 
-按序回调：
+按序执行模块注册的回调：
 
 Raw 模块 (Priority -300)：决定是否要绕过跟踪。
 
